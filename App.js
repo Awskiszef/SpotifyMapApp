@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri, useAuthRequest, ResponseType } from 'expo-auth-session';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -30,7 +31,7 @@ export default function App() {
     {
       responseType: ResponseType.Token,
       clientId: clientId,
-      scopes: ['user-read-currently-playing', 'user-read-playback-state'],
+      scopes: ['user-read-currently-playing', 'user-read-playback-state', 'user-modify-playback-state'],
       redirectUri: redirectUri,
     },
     discovery
@@ -80,6 +81,44 @@ export default function App() {
     } catch (e) {
       console.log('Błąd podczas pobierania danych ze Spotify', e);
     }
+  };
+
+  const skipToNext = async () => {
+    if (!token) return;
+    try {
+      await fetch('https://api.spotify.com/v1/me/player/next', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTimeout(() => fetchNowPlaying(token), 500);
+    } catch (e) { console.log(e); }
+  };
+
+  const skipToPrevious = async () => {
+    if (!token) return;
+    try {
+      await fetch('https://api.spotify.com/v1/me/player/previous', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTimeout(() => fetchNowPlaying(token), 500);
+    } catch (e) { console.log(e); }
+  };
+
+  const togglePlayback = async () => {
+    if (!token || !nowPlaying) return;
+    const isPlaying = nowPlaying.is_playing;
+    const url = isPlaying 
+      ? 'https://api.spotify.com/v1/me/player/pause' 
+      : 'https://api.spotify.com/v1/me/player/play';
+    try {
+      await fetch(url, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setNowPlaying({...nowPlaying, is_playing: !isPlaying});
+      setTimeout(() => fetchNowPlaying(token), 500);
+    } catch (e) { console.log(e); }
   };
 
   // 1. Ekran Konfiguracji (podawanie Client ID)
@@ -168,6 +207,18 @@ export default function App() {
                 <View style={[styles.statusDot, { backgroundColor: nowPlaying.is_playing ? '#1DB954' : '#888' }]} />
                 <Text style={styles.statusText}>{nowPlaying.is_playing ? 'Odtwarzane' : 'Wstrzymane'}</Text>
               </View>
+            </View>
+            
+            <View style={styles.controls}>
+              <TouchableOpacity onPress={skipToPrevious} style={styles.controlBtn}>
+                <Ionicons name="play-skip-back" size={24} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={togglePlayback} style={styles.controlBtnPlay}>
+                <Ionicons name={nowPlaying.is_playing ? "pause" : "play"} size={28} color="#000" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={skipToNext} style={styles.controlBtn}>
+                <Ionicons name="play-skip-forward" size={24} color="#fff" />
+              </TouchableOpacity>
             </View>
           </View>
         ) : (
@@ -319,5 +370,22 @@ const styles = StyleSheet.create({
   statusText: {
     color: '#b3b3b3',
     fontSize: 12,
+  },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  controlBtn: {
+    padding: 8,
+  },
+  controlBtnPlay: {
+    backgroundColor: '#1DB954',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 8,
   }
 });
