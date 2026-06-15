@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, Image, TouchableOpacity, Dimensions, TextInput,
 import MapView, { PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri, useAuthRequest, ResponseType } from 'expo-auth-session';
+import { makeRedirectUri, useAuthRequest, ResponseType, exchangeCodeAsync } from 'expo-auth-session';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -16,22 +16,26 @@ const discovery = {
 
 export default function App() {
   const [location, setLocation] = useState(null);
-  
+
   // Konfiguracja Spotify
   const [clientId, setClientId] = useState('');
   const [isClientSet, setIsClientSet] = useState(false);
   const [token, setToken] = useState(null);
   const [nowPlaying, setNowPlaying] = useState(null);
-  
+
   const redirectUri = makeRedirectUri({
     scheme: 'spotifymapapp'
   });
 
+  // 2. Drukujemy go w konsoli, żeby wiedzieć, co wpisać w Spotify
+  console.log("SKOPIUJ TEN DOKŁADNY ADRES DO PANELU SPOTIFY:", redirectUri);
+
   const [request, response, promptAsync] = useAuthRequest(
     {
-      responseType: ResponseType.Token,
+      responseType: ResponseType.Code,
       clientId: clientId,
       scopes: ['user-read-currently-playing', 'user-read-playback-state', 'user-modify-playback-state'],
+      usePKCE: true,
       redirectUri: redirectUri,
     },
     discovery
@@ -50,12 +54,28 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (response?.type === 'success') {
-      const { access_token } = response.params;
-      setToken(access_token);
-      fetchNowPlaying(access_token);
+    if (response?.type === 'success' && request?.codeVerifier) {
+      const { code } = response.params;
+      exchangeCodeAsync(
+        {
+          clientId,
+          code,
+          redirectUri,
+          extraParams: {
+            code_verifier: request.codeVerifier,
+          },
+        },
+        discovery
+      )
+        .then((tokenResponse) => {
+          setToken(tokenResponse.accessToken);
+          fetchNowPlaying(tokenResponse.accessToken);
+        })
+        .catch((err) => {
+          console.log('Błąd podczas wymiany kodu na token', err);
+        });
     }
-  }, [response]);
+  }, [response, request]);
 
   useEffect(() => {
     if (!token) return;
@@ -108,15 +128,15 @@ export default function App() {
   const togglePlayback = async () => {
     if (!token || !nowPlaying) return;
     const isPlaying = nowPlaying.is_playing;
-    const url = isPlaying 
-      ? 'https://api.spotify.com/v1/me/player/pause' 
+    const url = isPlaying
+      ? 'https://api.spotify.com/v1/me/player/pause'
       : 'https://api.spotify.com/v1/me/player/play';
     try {
       await fetch(url, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` }
       });
-      setNowPlaying({...nowPlaying, is_playing: !isPlaying});
+      setNowPlaying({ ...nowPlaying, is_playing: !isPlaying });
       setTimeout(() => fetchNowPlaying(token), 500);
     } catch (e) { console.log(e); }
   };
@@ -128,7 +148,7 @@ export default function App() {
         <StatusBar style="light" />
         <Text style={styles.title}>Mapify</Text>
         <Text style={styles.subtitle}>Zanim zaczniemy, podaj swoje Client ID z aplikacji utworzonej w Spotify Developer Dashboard.</Text>
-        
+
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>Jako Redirect URI w panelu Spotify dodaj dokładnie ten adres:</Text>
           <Text selectable style={styles.codeBlock}>{redirectUri}</Text>
@@ -143,8 +163,8 @@ export default function App() {
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <TouchableOpacity 
-          style={[styles.btn, !clientId && { opacity: 0.5 }]} 
+        <TouchableOpacity
+          style={[styles.btn, !clientId && { opacity: 0.5 }]}
           disabled={!clientId}
           onPress={() => setIsClientSet(true)}
         >
@@ -161,9 +181,9 @@ export default function App() {
         <StatusBar style="light" />
         <Text style={styles.title}>Prawie gotowe!</Text>
         <Text style={styles.subtitle}>Teraz połącz aplikację ze swoim kontem Spotify.</Text>
-        
-        <TouchableOpacity 
-          style={styles.spotifyBtn} 
+
+        <TouchableOpacity
+          style={styles.spotifyBtn}
           disabled={!request}
           onPress={() => promptAsync()}
         >
@@ -192,9 +212,9 @@ export default function App() {
       <View style={styles.glassOverlay}>
         {nowPlaying && nowPlaying.item ? (
           <View style={styles.nowPlayingContent}>
-            <Image 
-              source={{ uri: nowPlaying.item.album.images[0]?.url }} 
-              style={styles.albumArt} 
+            <Image
+              source={{ uri: nowPlaying.item.album.images[0]?.url }}
+              style={styles.albumArt}
             />
             <View style={styles.trackInfo}>
               <Text style={styles.trackName} numberOfLines={1}>
@@ -208,7 +228,7 @@ export default function App() {
                 <Text style={styles.statusText}>{nowPlaying.is_playing ? 'Odtwarzane' : 'Wstrzymane'}</Text>
               </View>
             </View>
-            
+
             <View style={styles.controls}>
               <TouchableOpacity onPress={skipToPrevious} style={styles.controlBtn}>
                 <Ionicons name="play-skip-back" size={24} color="#fff" />
@@ -224,7 +244,7 @@ export default function App() {
         ) : (
           <View style={styles.nowPlayingContent}>
             <View style={[styles.albumArt, { backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }]}>
-              <Text style={{fontSize: 24}}>🎵</Text>
+              <Text style={{ fontSize: 24 }}>🎵</Text>
             </View>
             <View style={styles.trackInfo}>
               <Text style={styles.trackName}>Brak aktywnego odtwarzania</Text>
